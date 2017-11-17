@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 
-
-import attr
+import functools
 import os
-import pytest
 import re
+import shlex
 import subprocess
 import time
 import timeit
+
+import attr
+import pytest
 
 
 def execute(command, success_codes=(0,)):
@@ -68,9 +70,22 @@ class Services(object):
         if cache is not None:
             return cache
 
-        output = self._docker_compose.execute(
-            'port %s %d' % (service, port,)
+        get_port = functools.partial(
+            self._docker_compose.execute,
+            'port %s %d' % (service, port,),
         )
+
+        def check_if_up():
+            try:
+                get_port()
+                return True
+            except Exception as ex:
+                if 'No container found' in ex.args[0]:
+                    return False
+                raise ex
+        self.wait_until_responsive(check_if_up, 5, 0.1)
+
+        output = get_port()
         endpoint = output.strip()
         if not endpoint:
             raise ValueError(
@@ -114,11 +129,20 @@ class DockerComposeExecutor(object):
     _compose_project_name = attr.ib()
 
     def execute(self, subcommand):
+        command =  '{} {}'.format(self._get_command_prefix(), subcommand)
+        return execute(command)
+
+    def get_up(self):
+        prepped_command = '{} up --build'.format(self._get_command_prefix())
+        subprocess.Popen(shlex.split(prepped_command))
+
+    def _get_command_prefix(self):
         command = "docker-compose"
         for compose_file in self._compose_files:
             command += ' -f "{}"'.format(compose_file)
-        command += ' -p "{}" {}'.format(self._compose_project_name, subcommand)
-        return execute(command)
+        command += ' -p "{}"'.format(self._compose_project_name)
+        return command
+
 
 
 @pytest.fixture(scope='session')
@@ -175,7 +199,7 @@ def docker_services(
             return
 
     # Spawn containers.
-    docker_compose.execute('up --build -d')
+    docker_compose.get_up()
 
     # Let test(s) run.
     yield Services(docker_compose)

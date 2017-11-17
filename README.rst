@@ -79,6 +79,11 @@ It will use the container port and localhost instead::
 Changelog
 =========
 
+Version 0.7.0
+-------------
+
+* Output from containers will now be printed for failed tests.
+
 Version 0.6.0
 -------------
 
